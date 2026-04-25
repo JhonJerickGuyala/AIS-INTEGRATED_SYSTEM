@@ -3,7 +3,7 @@ import validator from 'validator';
 import bcrypt from 'bcryptjs';
 import jwt from "jsonwebtoken";
 
-export const createUser = async (userProfile,email, password) => {
+export const createUser = async (userProfile, email, password, legacyId) => {
 
   if (!email || !password) {
     const error = new Error('Email and Password are required.');
@@ -34,31 +34,10 @@ export const createUser = async (userProfile,email, password) => {
   }
 
   const hashedPassword = await bcrypt.hash(password, 10);
-  //changes 
-  const response = await fetch (
-        `https://ais-simulated-legacy.onrender.com/api/students`, {
-    method: 'POST',
-    headers: {
-        'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(userProfile)
-    }
-  );
-  
-  const result = await fetch(
-    `http://localhost:5000/auth/register`, {
-    method: 'POST',
-    headers: {
-        'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(userProfile)
-    }
-  );
-
 
   const [newUser] = await pool.query(
-    "INSERT INTO usertbl (email, password) VALUES (?,?)",
-    [email, hashedPassword]
+    "INSERT INTO usertbl (email, password, legacy_id) VALUES (?,?,?)",
+    [email, hashedPassword, legacyId || null]
   );
 
   return newUser;
@@ -109,3 +88,9 @@ export const getUser = async (id) => {
     return user;
 }
 
+export const getUserByEmail = async (email) => {
+  const [user] = await pool.query(
+    'SELECT * FROM usertbl WHERE email = ?', [email]
+  );
+  return user[0];
+}

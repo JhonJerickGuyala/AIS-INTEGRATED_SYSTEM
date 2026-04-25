@@ -37,3 +37,25 @@ export const create = async (profile) => {
     throw error;
   }
 }
+
+export const getStudentProfile = async (legacyId) => {
+  try {
+    const response = await fetch('https://ais-simulated-legacy.onrender.com/api/students', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+    });
+
+    if (!response.ok) throw new Error(`Legacy API failed: ${response.status}`);
+
+    const students = await response.json();
+    
+    // HAHANAPIN NIYA NA NGAYON GAMIT ANG ID, HINDI NA EMAIL!
+    const student = students.find((item) => item._id === legacyId);
+
+    if (!student) throw new Error(`Student profile not found for legacy ID: ${legacyId}`);
+
+    return student;
+  } catch (error) {
+    throw error;
+  }
+};

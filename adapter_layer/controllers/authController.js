@@ -1,64 +1,74 @@
-import * as AuthService from '../services/authService.js';
-import * as UserModel from '../../auth_system/models/UserModel.js';
+  import * as AuthService from '../services/authService.js';
+  import * as AuthAdapter from '../adapters/authAdapter.js';
 
-export const registerStudent = async (req, res) => {
-    const {firstName, lastName, dob, course, major, status, email, password, address} = req.body;
+const AUTH_SYSTEM_URL = process.env.AUTH_SYSTEM_URL;
 
-    console.log('Received request body:', JSON.stringify(req.body, null, 2));
-    console.log('Extracted fields:', {firstName, lastName, dob, course, major, status, email, password});
+  export const registerStudent = async (req, res) => {
+    const { firstName, lastName, dob, course, major, status, email, password, address } = req.body;
 
-    // Validate required fields before processing
-    if (!firstName || !lastName) {
-        return res.status(400).json({
-            success: false,
-            error: 'firstName and lastName are required'
-        });
+    if (!firstName || !lastName || !email || !password) {
+        return res.status(400).json({ success: false, error: 'Required fields are missing.' });
     }
 
     try {
-        const studentProfile = {
-            firstName,
-            lastName,
-            dob,
-            course,
-            major,
-            status,
-            email,
-            password,
-            address
-        };
+        const checkResponse = await fetch(`${AUTH_SYSTEM_URL}/user/check-email`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+        });
 
-        // Step 1: Send student profile to legacy system via adapter
-        console.log('Step 1: Calling authService.registerStudent...');
+        if (!checkResponse.ok) {
+            return res.status(400).json({ success: false, error: `The email ${email} is already used.` });
+        }
+
+        const studentProfile = { firstName, lastName, dob, course, major, status, email, password, address };
         const legacyResult = await AuthService.registerStudent(studentProfile);
-        console.log('✓ Legacy system response:', legacyResult);
+        const legacyId = legacyResult._id || legacyResult.id;
 
-        // Step 2: Store email/password in Auth_System database
-        console.log('Step 2: Calling UserModel.createUser...');
-        const userProfile = {
-            name: firstName + ' ' + lastName,
-            birthdate: dob,
-            address: address || 'N/A',
-            program: course + ' ' + major,
-            studentStatus: status
-        };
-        const dbResult = await UserModel.createUser(userProfile, email, password);
-        console.log('✓ Database result:', dbResult);
+        const authResponse = await fetch(`${AUTH_SYSTEM_URL}/user/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                firstname: firstName, lastName, dob, course, major, status, email, password, address, legacyId
+            })
+        });
 
-        res.status(201).json({
+        const authResult = await authResponse.json();
+
+        if (!authResponse.ok) throw new Error(authResult.message || 'Auth System registration failed.');
+
+        return res.status(201).json({
             success: true,
-            message: {
-                legacy: legacyResult,
-                database: 'Account created successfully'
-            }
+            message: { authSystem: authResult.message, legacy: legacyResult }
         });
     } catch (error) {
-        console.error('❌ Registration error:', error.message);
-        console.error('Stack:', error.stack);
-        res.status(error.statusCode || 500).json({
-            success: false,
-            error: error.message || 'Internal Server Error',
-            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        });
+        return res.status(500).json({ success: false, error: error.message });
     }
 };
+
+  export const loginStudent = async (req, res) => {
+    const { email, password } = req.body;
+
+    try {
+
+      const authResponse = await fetch(`${AUTH_SYSTEM_URL}/user/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+
+      const authResult = await authResponse.json();
+      if (!authResponse.ok) throw new Error(authResult.message || 'Login failed.');
+
+      const token = authResult.message?.[0]?.token;
+      const legacyId = authResult.message?.[0]?.legacy_id; 
+
+      if (!legacyId) throw new Error('No legacy ID found. Please register a NEW account.');
+
+      const studentProfile = await AuthAdapter.getStudentProfile(legacyId);
+
+      return res.status(200).json({ success: true, token, studentProfile });
+    } catch (error) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
+  };
